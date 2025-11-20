@@ -1,12 +1,32 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 import { Interview, Problem, Submission, Message, Metrics, Report } from '@/types';
 
-const dbPath = path.join(process.cwd(), 'interview_forge.db');
-const db = new Database(dbPath);
+// Initialize database with proper error handling
+let db: Database.Database | null = null;
 
-// Initialize tables
-db.exec(`
+function getDatabase(): Database.Database {
+  if (db) {
+    return db;
+  }
+
+  try {
+    const dbPath = path.join(process.cwd(), 'interview_forge.db');
+    
+    // Ensure directory exists (for Windows compatibility)
+    const dbDir = path.dirname(dbPath);
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
+    }
+
+    db = new Database(dbPath);
+    
+    // Enable foreign keys
+    db.pragma('foreign_keys = ON');
+    
+    // Initialize tables
+    db.exec(`
   CREATE TABLE IF NOT EXISTS interviews (
     id TEXT PRIMARY KEY,
     candidateName TEXT NOT NULL,
@@ -28,7 +48,7 @@ db.exec(`
     starterCode TEXT NOT NULL,
     testCases TEXT NOT NULL,
     hints TEXT NOT NULL,
-    index INTEGER NOT NULL,
+    "index" INTEGER NOT NULL,
     FOREIGN KEY (interviewId) REFERENCES interviews(id)
   );
 
@@ -73,9 +93,17 @@ db.exec(`
   );
 `);
 
+    return db;
+  } catch (error: any) {
+    console.error('Database initialization error:', error);
+    throw new Error(`Failed to initialize database: ${error.message}`);
+  }
+}
+
 export const dbHelpers = {
   // Interview operations
   createInterview: (interview: Omit<Interview, 'id'>) => {
+    const db = getDatabase();
     const id = `int_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const stmt = db.prepare(`
       INSERT INTO interviews (id, candidateName, status, startedAt, completedAt, currentProblemIndex, experienceLevel, language)
@@ -95,6 +123,7 @@ export const dbHelpers = {
   },
 
   getInterview: (id: string): Interview | null => {
+    const db = getDatabase();
     const stmt = db.prepare('SELECT * FROM interviews WHERE id = ?');
     const row = stmt.get(id) as any;
     if (!row) return null;
@@ -106,6 +135,7 @@ export const dbHelpers = {
   },
 
   updateInterview: (id: string, updates: Partial<Interview>) => {
+    const db = getDatabase();
     const fields: string[] = [];
     const values: any[] = [];
     
@@ -130,9 +160,10 @@ export const dbHelpers = {
 
   // Problem operations
   createProblem: (problem: Omit<Problem, 'id'>) => {
+    const db = getDatabase();
     const id = `prob_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const stmt = db.prepare(`
-      INSERT INTO problems (id, interviewId, title, description, difficulty, language, starterCode, testCases, hints, index)
+      INSERT INTO problems (id, interviewId, title, description, difficulty, language, starterCode, testCases, hints, "index")
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
@@ -151,7 +182,8 @@ export const dbHelpers = {
   },
 
   getProblems: (interviewId: string): Problem[] => {
-    const stmt = db.prepare('SELECT * FROM problems WHERE interviewId = ? ORDER BY index');
+    const db = getDatabase();
+    const stmt = db.prepare('SELECT * FROM problems WHERE interviewId = ? ORDER BY "index"');
     const rows = stmt.all(interviewId) as any[];
     return rows.map(row => ({
       ...row,
@@ -161,6 +193,7 @@ export const dbHelpers = {
   },
 
   getProblem: (id: string): Problem | null => {
+    const db = getDatabase();
     const stmt = db.prepare('SELECT * FROM problems WHERE id = ?');
     const row = stmt.get(id) as any;
     if (!row) return null;
@@ -173,6 +206,7 @@ export const dbHelpers = {
 
   // Submission operations
   createSubmission: (submission: Omit<Submission, 'id'>) => {
+    const db = getDatabase();
     const id = `sub_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const stmt = db.prepare(`
       INSERT INTO submissions (id, problemId, interviewId, code, language, status, testResults, submittedAt, attemptNumber, executionTime)
@@ -194,6 +228,7 @@ export const dbHelpers = {
   },
 
   getSubmissions: (problemId: string): Submission[] => {
+    const db = getDatabase();
     const stmt = db.prepare('SELECT * FROM submissions WHERE problemId = ? ORDER BY submittedAt');
     const rows = stmt.all(problemId) as any[];
     return rows.map(row => ({
@@ -205,6 +240,7 @@ export const dbHelpers = {
 
   // Message operations
   createMessage: (message: Omit<Message, 'id'>) => {
+    const db = getDatabase();
     const id = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const stmt = db.prepare(`
       INSERT INTO messages (id, interviewId, role, content, timestamp, type)
@@ -222,6 +258,7 @@ export const dbHelpers = {
   },
 
   getMessages: (interviewId: string): Message[] => {
+    const db = getDatabase();
     const stmt = db.prepare('SELECT * FROM messages WHERE interviewId = ? ORDER BY timestamp');
     const rows = stmt.all(interviewId) as any[];
     return rows.map(row => ({
@@ -232,6 +269,7 @@ export const dbHelpers = {
 
   // Metrics operations
   getOrCreateMetrics: (interviewId: string): Metrics => {
+    const db = getDatabase();
     const stmt = db.prepare('SELECT * FROM metrics WHERE interviewId = ?');
     let row = stmt.get(interviewId) as any;
     
@@ -245,6 +283,7 @@ export const dbHelpers = {
   },
 
   updateMetrics: (interviewId: string, updates: Partial<Metrics>) => {
+    const db = getDatabase();
     const fields: string[] = [];
     const values: any[] = [];
     
@@ -263,5 +302,5 @@ export const dbHelpers = {
   },
 };
 
-export default db;
+export default getDatabase;
 
